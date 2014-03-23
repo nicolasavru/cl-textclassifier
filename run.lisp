@@ -22,7 +22,7 @@
   ;;                                                   (osb words 5))))
   ;; (print *hyperspace*)
 
-  (multiple-value-bind (success class-priors class-likelihood-fun)
+  (multiple-value-bind (success class-priors class-likelihood-fun idf)
       (train-naive-bayes-from-files labels-fname)
     (declare (ignore success))
 
@@ -40,5 +40,6 @@
     (classify-files-naive-bayes "./corpus1_test.labels"
                                 class-priors
                                 class-likelihood-fun
+                                idf
                                 :outfile outfile))
   )
