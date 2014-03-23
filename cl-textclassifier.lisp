@@ -96,16 +96,6 @@
              histogram)
     histogram))
 
-(defun tf-idf (vecs)
-  (let* ((tf-idf-table (make-hash-table :test #'equal))
-         (tf-table (tf vecs))
-         (idf-table (idf vecs)))
-    (maphash #'(lambda (k v)
-                (setf (gethash k tf-idf-table)
-                      (* v (gethash k idf-table))))
-             tf-table)
-    tf-idf-table))
-
 (defun train-naive-bayes (docs)
   "DOCS is a list of (class . filename) conses."
   (let ((classes '())
@@ -120,6 +110,7 @@
         (class-tf-sums (make-hash-table :test #'equal))
         (class-priors (make-hash-table :test #'equal))
         (class-likelihoods (make-hash-table :test #'equal))
+        (class-likelihood-sums (make-hash-table :test #'equal))
         (class-likelihood-fun)
         (N 0))
     (dolist (doc docs)
@@ -208,8 +199,22 @@
                                            (+ (gethash class class-tf-sums)
                                               (length (keys vocabulary)))))))
                          (gethash class class-tf)))
-            classes
-            )
+            classes)
+
+    ;; compute class likelihood sums
+    (mapcar #'(lambda (class)
+                (setf (gethash class class-likelihood-sums)
+                      (reduce #'+ (vals (gethash class class-likelihoods)))))
+            classes)
+
+    ;; normalize likelihoods
+    (maphash #'(lambda (class likelihood-table)
+                 ;; for each word in its complementary tf table
+                (maphash #'(lambda (word likelihood)
+                             (setf (gethash word likelihood-table)
+                                   (/ likelihood (gethash class class-likelihood-sums)) ))
+                         likelihood-table))
+            class-likelihoods)
 
 
     (setf class-likelihood-fun
