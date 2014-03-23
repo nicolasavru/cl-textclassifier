@@ -96,11 +96,12 @@
              histogram)
     histogram))
 
-(defun train-naive-bayes (docs)
-  "DOCS is a list of (class . filename) conses."
+(defun train-naive-bayes (training-data)
+  "Train a naive bayes classifier on TRAINING-DATA, where
+  TRAINING-DATA is a list of (class . text) conses."
   (let ((classes '())
         (class-histogram (make-hash-table :test #'equal))
-        (class-texts (make-hash-table :test #'equal))
+        (class-features (make-hash-table :test #'equal))
         (vocabulary (make-hash-table :test #'equal))
         (class-feature-vecs (make-hash-table :test #'equal))
         (class-doc-tfs (make-hash-table :test #'equal))
@@ -113,27 +114,20 @@
         (class-likelihood-sums (make-hash-table :test #'equal))
         (class-likelihood-fun)
         (N 0))
-    (dolist (doc docs)
+    (dolist (doc training-data)
       (let ((class (car doc))
-            (filename (cdr doc)))
+            (features (cdr doc)))
         (incf (gethash class class-histogram 0))
-        (with-open-file (stream filename)
-          (let ((text (make-string (file-length stream))))
-            (read-sequence text stream)
-            (multiple-value-bind (success-p idx tokenized-string)
-                ;; (declare (ignore success-p))
-                (langutils:tokenize-string text)
-              (setf (gethash class class-texts)
-                    (cons (split-sequence:split-sequence #\Space tokenized-string
-                                                         :remove-empty-subseqs t)
-                          (gethash class class-texts '()))))))))
+        (setf (gethash class class-features)
+              (cons features
+                    (gethash class class-features '())))))
 
-    (setf classes (keys class-texts))
+    (setf classes (keys class-features))
 
     ;; compute idf
     (setf idf (idf (mapcar #'(lambda (text-list)
                                (apply #'concatenate 'list text-list))
-                           (vals class-texts))))
+                           (vals class-features))))
     ;; (maphash #'print-hash-entry idf)
     ;; (format t "the ~d~%" (gethash "the" idf))
 
@@ -142,7 +136,7 @@
                  (setf (gethash k class-doc-tfs)
                        (mapcar #'(lambda (v) (tf v :idf idf))
                                v)))
-             class-texts)
+             class-features)
 
     ;; compute global complementary tf table for each class
     ;; for each class...
@@ -225,13 +219,13 @@
                              (+ (gethash class class-tf-sums)
                                 (length (keys vocabulary))))))))
 
-    ;; compute log-priors
+    ;; don't bother computing priors
     (maphash #'(lambda (k v)
-                 (declare (ignore v))
+                 (declare (ignore k v))
                  (setf (gethash k class-priors)
-                       (log (/ (gethash k class-histogram) (length docs)))))
+                       1))
              class-histogram)
-    
+
     ;; compute log-likelihoods with Laplace smoothing
     ;; (setf class-likelihood-fun
     ;;       (lambda (word class)
@@ -242,7 +236,7 @@
     ;;                                   (gethash class class-tf)
     ;;                                   0)
     ;;                          1)
-    ;;                       (+ (length (gethash class class-texts))
+    ;;                       (+ (length (gethash class class-features))
     ;;                          (length vocabulary))))
     ;;               ;; 0
     ;;               ;; CNB
@@ -254,7 +248,7 @@
     ;;                                    (incf nci-bar
     ;;                                          (gethash word v 0))
     ;;                                    (incf nc-bar
-    ;;                                          (length (gethash class class-texts))))))
+    ;;                                          (length (gethash class class-features))))))
     ;;                          class-tf)
     ;;                 (log (/ (+ nci-bar 1)
     ;;                         (+ nc-bar (length vocabulary))))
@@ -263,7 +257,7 @@
     ;; (maphash #'(lambda (k v)
     ;;              (setf (gethash k class-likelihoods)
     ;;                    (log (/ (+ (gethash k class-tf) 1)
-    ;;                            (+ (length (gethash k class-texts))
+    ;;                            (+ (length (gethash k class-features))
     ;;                               (length vocabulary))))))
     ;;          class-tf)
     (values t class-priors class-likelihood-fun idf)))
@@ -274,8 +268,10 @@
   /path/to/file1 class-of-file1
   /path/to/file2 class-of-file2
   ...
-  /path/to/filen class-of-filen"
-  (let ((docs '()))
+  /path/to/filen class-of-filen
+
+  Assumes the file paths do not contain spaces."
+  (let ((training-data '()))
     (with-open-file (stream list-file)
       (do ((line (read-line stream nil)
                  (read-line stream nil)))
@@ -283,8 +279,19 @@
         (let* ((split-line (split-sequence:split-sequence #\Space line :remove-empty-subseqs t))
                (filename (car split-line))
                (class (cadr split-line)))
-          (push (cons class filename) docs))))
-    (train-naive-bayes docs)))
+          (with-open-file (stream filename)
+            (let ((text (make-string (file-length stream))))
+              (read-sequence text stream)
+
+              ;; tokenization fun
+              (multiple-value-bind (success-p idx tokenized-string)
+                  (langutils:tokenize-string text)
+                (declare (ignore success-p))
+                (push (cons class
+                            (split-sequence:split-sequence #\Space tokenized-string
+                                                           :remove-empty-subseqs t))
+                      training-data)))))))
+    (train-naive-bayes training-data)))
 
 (defun classify-naive-bayes (text class-priors class-likelihood-fun idf)
   (multiple-value-bind (success-p idx tokenized-string)
