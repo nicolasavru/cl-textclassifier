@@ -8,12 +8,24 @@
   "Number of bits of the hash of a feature to use. Also the
   dimensionality for the hyperspace.")
 
+(defvar *hyperspace* '())
+
 (defun bag-of-words (words)
   "Generate the bag of words features of WORDS. This is WORDS itself."
   words
   )
 
-;; (defun n-grams (words N)
+(defun osb (words N)
+  "Generate the Orthogonal Sparse Bigram (OSB) features of
+  words. Given a list of words (w1 w2 ... wn), its OSB representation
+  is ((w1 w2) (w1 w3) ... (w1 wn))"
+  (let ((w1 (car words)))
+    (mapcar #'(lambda (w) (cons w1 w)) (cdr words))))
+
+;; (defun osb (words N)
+;;   "Generate the Orthogonal Sparse Bigram (OSB) features of
+;;   words. Given a list of words (w1 w2 ... wn), its OSB representation
+;;   is ((w1 w2) (w1 w3) ... (w1 wn))"
 ;;   (let* ((w1 (car words))
 ;;         (l (length words))
 ;;         (arr (make-array l :initial-contents words))
@@ -23,28 +35,7 @@
 ;;         (push (cons (aref arr i) (aref arr (+ i j 1))) acc)
 ;;         ))
 ;;     acc))
-
-(defun osb (words)
-  "Generate the Orthogonal Sparse Bigram (OSB) features of
-  words. Given a list of words (w1 w2 ... wn), its OSB representation
-  is ((w1 w2) (w1 w3) ... (w1 wn))"
-  (let ((w1 (car words)))
-    (mapcar #'(lambda (w) (sxhash (cons w1 w))) (cdr words))))
-
-(defun osb-sliding (words N)
-  "Generate the Orthogonal Sparse Bigram (OSB) features of
-  words. Given a list of words (w1 w2 ... wn), its OSB representation
-  is ((w1 w2) (w1 w3) ... (w1 wn))"
-  (let* ((w1 (car words))
-        (l (length words))
-        (arr (make-array l :initial-contents words))
-        (acc '()))
-    (dotimes (i (- l N))
-      (dotimes (j N)
-        (push (cons (aref arr i) (aref arr (+ i j 1))) acc)
-        ))
-    acc))
-    ;; (mapcar #'(lambda (w) (cons w1 w)) (cdr words))))
+;;     ;; (mapcar #'(lambda (w) (cons w1 w)) (cdr words))))
 
 (defun features2vec (features)
   "Convert a list of features to a vector in the hyperspace, where
@@ -65,27 +56,79 @@
 ;;         (incf (gethash feature histogram 0))))
 ;;     histogram))
 
-(defun tf (vec &key idf)
-  "Compute term frequencies for VEC, where VEC is a list of features."
+;; ;; length normalized tf - performs poorly
+;; (defun tf-train (vec &key idf)
+;;   "Compute term frequencies for VEC, where VEC is, for example, the
+;;   tokenized text of a document."
+;;   (let ((histogram (make-hash-table :test #'equal))
+;;         (denom 0))
+;;     (dolist (feature vec)
+;;       (incf (gethash feature histogram 0)))
+;;     (maphash #'(lambda (k v)
+;;                  (setf (gethash k histogram)
+;;                        (* (log (1+ v))
+;;                           (gethash k idf 1)))
+;;                  (incf denom (expt (gethash k histogram) 2)))
+;;              histogram)
+;;     (setf denom (sqrt denom))
+;;     (maphash #'(lambda (k v)
+;;                  (setf (gethash k histogram)
+;;                        (/ v denom)))
+;;              histogram)
+;;     histogram))
+
+;; ;; tf with incorrect length normalization (denominator is computed
+;; ;; before IDF transformation) - performs surprisingly well
+;; ;; 0.865
+;; (defun tf-train (vec &key idf)
+;;   "Compute term frequencies for VEC, where VEC is, for example, the
+;;   tokenized text of a document."
+;;   (let ((histogram (make-hash-table :test #'equal))
+;;         (denom 0))
+;;     (dolist (feature vec)
+;;       (incf (gethash feature histogram 0)))
+;;     (maphash #'(lambda (k v)
+;;                  (setf (gethash k histogram)
+;;                        (log (1+ v)))
+;;                  (incf denom (expt (gethash k histogram) 2)))
+;;              histogram)
+;;     (setf denom (sqrt denom))
+;;     (maphash #'(lambda (k v)
+;;                  (setf (gethash k histogram)
+;;                        (* (gethash k idf 1) ; TODO-maybe: change 1 to N
+;;                           (/ v denom))))
+;;              histogram)
+;;     histogram))
+
+;; tf without length normalization - slightly improves recall at
+;; the expense of precision as compared to tf-good, but results in
+;; higher F1 metrics than improper length normalization
+;; 0.869; 0.878 with tf-plain
+(defun tf-train (vec &key idf)
+  "Compute term frequencies for VEC, where VEC is, for example, the
+  tokenized text of a document."
   (let ((histogram (make-hash-table :test #'equal))
         (denom 0))
     (dolist (feature vec)
       (incf (gethash feature histogram 0)))
     (maphash #'(lambda (k v)
                  (setf (gethash k histogram)
-                       (log (1+ v)))
-                 )
+                       (log (1+ v))))
              histogram)
     (maphash #'(lambda (k v)
                  (setf (gethash k histogram)
-                       (* v (gethash k (cdr idf) (log (car IDF)))))
-                 (incf denom (expt (gethash k histogram) 2)))
+                       (* v (gethash k idf 1))))  ; 1 or N makes little difference
              histogram)
-    (setf denom (sqrt denom))
-    (maphash #'(lambda (k v)
-                 (setf (gethash k histogram)
-                       (/ v denom)))
-             histogram)
+    histogram))
+
+;; non-transformed tf - used for test document tf
+(defun tf-plain (vec &key idf)
+  "Compute term frequencies for VEC, where VEC is, for example, the
+  tokenized text of a document."
+  (let ((histogram (make-hash-table :test #'equal))
+        (denom 0))
+    (dolist (feature vec)
+      (incf (gethash feature histogram 0)))
     histogram))
 
 (defun idf (vecs)
@@ -106,18 +149,19 @@
                  (setf (gethash k histogram)
                        (log (/ N v))))
              histogram)
-    (cons N histogram)))
+    histogram))
 
 (defun train-naive-bayes (training-data)
-  "Train a naive bayes classifier on TRAINING-DATA, where
-  TRAINING-DATA is a list of (class . text) conses."
+  "TRAINING-DATA is a list of (class . filename) conses."
   (let ((classes '())
         (class-histogram (make-hash-table :test #'equal))
         (class-features (make-hash-table :test #'equal))
         (vocabulary (make-hash-table :test #'equal))
+        (class-feature-vecs (make-hash-table :test #'equal))
         (class-doc-tfs (make-hash-table :test #'equal))
         (class-tf (make-hash-table :test #'equal))
         (idf (make-hash-table :test #'equal))
+        (class-tf-idf (make-hash-table :test #'equal))
         (class-tf-sums (make-hash-table :test #'equal))
         (class-priors (make-hash-table :test #'equal))
         (class-likelihoods (make-hash-table :test #'equal))
@@ -126,11 +170,18 @@
         (N 0))
     (dolist (doc training-data)
       (let ((class (car doc))
-            (features (cdr doc)))
+            (filename (cdr doc)))
         (incf (gethash class class-histogram 0))
-        (setf (gethash class class-features)
-              (cons features
-                    (gethash class class-features '())))))
+        (with-open-file (stream filename)
+          (let ((text (make-string (file-length stream))))
+            (read-sequence text stream)
+            (multiple-value-bind (success-p idx tokenized-string)
+                ;; (declare (ignore success-p))
+                (langutils:tokenize-string text)
+              (setf (gethash class class-features)
+                    (cons (split-sequence:split-sequence #\Space tokenized-string
+                                                         :remove-empty-subseqs t)
+                          (gethash class class-features '()))))))))
 
     (setf classes (keys class-features))
 
@@ -138,13 +189,11 @@
     (setf idf (idf (mapcar #'(lambda (text-list)
                                (apply #'concatenate 'list text-list))
                            (vals class-features))))
-    ;; (maphash #'print-hash-entry idf)
-    ;; (format t "the ~d~%" (gethash "the" idf))
 
     ;; compute tfs - each resultant value is a list of hash tables of tfs
     (maphash #'(lambda (k v)
                  (setf (gethash k class-doc-tfs)
-                       (mapcar #'(lambda (v) (tf v :idf idf))
+                       (mapcar #'(lambda (v) (tf-train v :idf idf))
                                v)))
              class-features)
 
@@ -191,6 +240,22 @@
                       (reduce #'+ (vals (gethash class class-tf)))))
             classes)
 
+    ;; ;; compute likelihoods
+    ;; ;; for each class...
+    ;; (mapcar #'(lambda (class)
+    ;;             ;; initialize its likelihood table
+    ;;             (setf (gethash class class-likelihoods)
+    ;;                   (make-hash-table :test #'equal))
+    ;;             ;; for each word in its complementary tf table
+    ;;             (maphash #'(lambda (word f)
+    ;;                          (setf (gethash word (gethash class class-likelihoods))
+    ;;                                (log (/ (1+ (gethash word (gethash class class-tf)))
+    ;;                                        (+ (gethash class class-tf-sums)
+    ;;                                           (length (keys vocabulary)))))))
+    ;;                      (gethash class class-tf)))
+    ;;         classes
+    ;;         )
+
     ;; compute likelihoods
     ;; for each class...
     (mapcar #'(lambda (class)
@@ -206,48 +271,83 @@
                          (gethash class class-tf)))
             classes)
 
-    ;; compute class likelihood sums
-    (mapcar #'(lambda (class)
-                (setf (gethash class class-likelihood-sums)
-                      (reduce #'+ (vals (gethash class class-likelihoods)))))
-            classes)
+    ;;; decreases accuracy from 0.865 to 0.813
+    ;; ;; compute class likelihood sums
+    ;; (mapcar #'(lambda (class)
+    ;;             (setf (gethash class class-likelihood-sums)
+    ;;                   (reduce #'+ (vals (gethash class class-likelihoods)))))
+    ;;         classes)
 
-    ;; normalize likelihoods
-    (maphash #'(lambda (class likelihood-table)
-                 ;; for each word in its complementary tf table
-                (maphash #'(lambda (word likelihood)
-                             (setf (gethash word likelihood-table)
-                                   (/ likelihood (gethash class class-likelihood-sums))))
-                         likelihood-table))
-            class-likelihoods)
-
+    ;; ;; normalize likelihoods
+    ;; (maphash #'(lambda (class likelihood-table)
+    ;;              ;; for each word in its complementary tf table
+    ;;             (maphash #'(lambda (word likelihood)
+    ;;                          (setf (gethash word likelihood-table)
+    ;;                                (/ likelihood (gethash class class-likelihood-sums))))
+    ;;                      likelihood-table))
+    ;;         class-likelihoods)
 
     (setf class-likelihood-fun
           (lambda (word class)
+            ;; (format t "in likelyhood fun, looking for word ~s in class ~s~%" word class)
             (gethash word (gethash class class-likelihoods)
                      (log (/ 1.0
                              (+ (gethash class class-tf-sums)
                                 (length (keys vocabulary))))))))
 
-    ;; don't bother computing priors
+
+
+    ;; compute log-priors
     (maphash #'(lambda (k v)
                  (declare (ignore v))
                  (setf (gethash k class-priors)
-                       1))
+                       (log (/ (gethash k class-histogram) (length training-data)))))
              class-histogram)
-
+    
+    ;; compute log-likelihoods with Laplace smoothing
+    ;; (setf class-likelihood-fun
+    ;;       (lambda (word class)
+    ;;         ;; (format t "word ~s has f ~d~%" word
+    ;;         ;;         (gethash word (gethash class class-tf) 0))
+    ;;         (* (log (gethash word idf N))
+    ;;            (- (log (/ (+ (gethash word
+    ;;                                   (gethash class class-tf)
+    ;;                                   0)
+    ;;                          1)
+    ;;                       (+ (length (gethash class class-features))
+    ;;                          (length vocabulary))))
+    ;;               ;; 0
+    ;;               ;; CNB
+    ;;               (let ((nci-bar 0)
+    ;;                     (nc-bar 0))
+    ;;                 (maphash #'(lambda (k v)
+    ;;                              (if (not (equal k class))
+    ;;                                  (progn
+    ;;                                    (incf nci-bar
+    ;;                                          (gethash word v 0))
+    ;;                                    (incf nc-bar
+    ;;                                          (length (gethash class class-features))))))
+    ;;                          class-tf)
+    ;;                 (log (/ (+ nci-bar 1)
+    ;;                         (+ nc-bar (length vocabulary))))
+    ;;                 )
+    ;;               ))))
+    ;; (maphash #'(lambda (k v)
+    ;;              (setf (gethash k class-likelihoods)
+    ;;                    (log (/ (+ (gethash k class-tf) 1)
+    ;;                            (+ (length (gethash k class-features))
+    ;;                               (length vocabulary))))))
+    ;;          class-tf)
     (values t class-priors class-likelihood-fun idf)))
 
-(defun train-naive-bayes-from-files (list-file &key (feature-fun #'bag-of-words))
+(defun train-naive-bayes-from-files (list-file)
   "Train CLASSIFIER on data from LIST-FILE. LIST-FILE should be of the
   format:
   /path/to/file1 class-of-file1
   /path/to/file2 class-of-file2
   ...
-  /path/to/filen class-of-filen
-
-  Assumes the file paths do not contain spaces."
-  (let ((training-data '()))
+  /path/to/filen class-of-filen"
+  (let ((docs '()))
     (with-open-file (stream list-file)
       (do ((line (read-line stream nil)
                  (read-line stream nil)))
@@ -255,44 +355,27 @@
         (let* ((split-line (split-sequence:split-sequence #\Space line :remove-empty-subseqs t))
                (filename (car split-line))
                (class (cadr split-line)))
-          (with-open-file (stream filename)
-            (let ((text (make-string (file-length stream))))
-              (read-sequence text stream)
+          (push (cons class filename) docs))))
+    (train-naive-bayes docs)))
 
-              (push (cons class
-                          ;; feature-fun
-                          ;; (funcall feature-fun
-                          (split-sequence:split-sequence #\Space
-                                                         ;; tokenization fun
-                                                         (multiple-value-bind
-                                                               (success-p idx tokenized-string)
-                                                             (langutils:tokenize-string text)
-                                                           (declare (ignore success-p))
-                                                           tokenized-string)
-                                                         :remove-empty-subseqs t))
-                    ;; )
-                    training-data))))))
-    (train-naive-bayes training-data)))
-
-(defun classify-naive-bayes (text class-priors class-likelihood-fun idf
-                             &key (feature-fun #'bag-of-words))
+(defun classify-naive-bayes (text class-priors class-likelihood-fun idf)
   (multiple-value-bind (success-p idx tokenized-string)
                 ;; (declare (ignore success-p))
                 (langutils:tokenize-string text)
-    (let* ((words
-             ;; (funcall feature-fun
-             (split-sequence:split-sequence #\Space tokenized-string :remove-empty-subseqs t))
-           ;; )
-           (tf (tf words :idf idf))
+    (let* ((words (split-sequence:split-sequence #\Space tokenized-string :remove-empty-subseqs t))
+           (tf (tf-plain words :idf idf))
            (class-posteriors (make-hash-table :test #'equal))
            (output-class)
            (min-posterior most-positive-fixnum))
 
       (maphash #'(lambda (class prior)
+                   ;; (format t "testing class ~s~%" class)
                    (let ((likelihood 0)
                          (posterior))
                      ;; compute posterior
                      (maphash #'(lambda (word f)
+                                  ;; (format t "word ~s has f ~d~%" word f)
+                                  ;; (format t "calling likelyhood fun, looking for class ~s~%" class)
                                   (incf likelihood
                                         (* f (funcall class-likelihood-fun word class))))
                               tf)
@@ -301,27 +384,27 @@
                            likelihood)
 
                      ;; find max posterior and most probable class
-                     ;; (format t "class ~s has p ~d~%" class posterior)
+                     (format t "class ~s has p ~d~%" class posterior)
                      (if (< posterior min-posterior)
                          (setf min-posterior posterior
                                output-class class))))
                class-priors)
       output-class)))
 
-(defun classify-file-naive-bayes (filename class-priors class-likelihood-fun idf
-                                  &key (feature-fun #'bag-of-words))
+(defun classify-file-naive-bayes (filename class-priors class-likelihood-fun idf)
   "Classify text from FILENAME."
   ;; (format t "classifying ~s~%" filename)
   (with-open-file (stream filename)
     (let ((seq (make-string (file-length stream))))
       (read-sequence seq stream)
-      (classify-naive-bayes seq class-priors
-                            class-likelihood-fun idf
-                            :feature-fun feature-fun))))
+      (classify-naive-bayes seq
+                            class-priors
+                            class-likelihood-fun
+                            idf))))
 
 (defun classify-files-naive-bayes (list-file class-priors
-                                   class-likelihood-fun idf
-                                   &key (feature-fun #'bag-of-words) outfile)
+                                   class-likelihood-fun idf &key outfile)
+  (format t "outfile: ~s~%" outfile)
   (let ((results '()))
     (with-open-file (stream list-file)
       (do ((line (read-line stream nil)
@@ -330,22 +413,21 @@
         (let* ((split-line (split-sequence:split-sequence #\Space line))
                (filename (car split-line))
                (class (cadr split-line)))
-          (format t "classifying ~a~%" filename)
           (setq results (acons filename (classify-file-naive-bayes filename
                                                                    class-priors
-                                                                   class-likelihood-fun idf
-                                                                   :feature-fun feature-fun) results))
-          ;; (format t "~S: ~S~%" filename (classify-file-naive-bayes filename
+                                                                   class-likelihood-fun idf) results))
+          (format t "~A: ~A~%" filename (cdar results))
+          ;; (format t "~A: ~A~%" filename (classify-file-naive-bayes filename
           ;;                                                          class-priors
-          ;;                                                          class-likelihood-fun idf
-          ;;                                                          :feature-fun feature-fun))
+          ;;                                                          class-likelihood-fun idf))
           ))
       (if outfile
           (with-open-file (out outfile :direction :output
                                        :if-exists :supersede
                                        :if-does-not-exist :create)
             (dolist (doc (reverse results))
-              (format out "~a ~a~%" (car doc) (cdr doc))))))))
+              (format out "~A ~A~%" (car doc) (cdr doc))))))
+    ))
 
 
 (defun keys (table)
@@ -402,7 +484,7 @@
                                           :feature-func feature-func))))))
 
 (defun print-hash-entry (key value)
-  (format t "The value associated with the key ~S is ~S~%" key value))
+  (format t "The value associated with the key ~A is ~A~%" key value))
 
 (defun classify (text &key classifier feature-func)
   "Classify TEXT using CLASSIFIER. Return the class to which TEXT is
@@ -448,7 +530,7 @@ predicted to belong to."
                 :feature-func feature-func))))
 
 (defun classify-files (list-file &key classifier feature-func outfile)
-  (format t "outfile: ~s~%" outfile)
+  (format t "outfile: ~S~%" outfile)
   (let ((results '()))
     (with-open-file (stream list-file)
       (do ((line (read-line stream nil)
@@ -460,13 +542,14 @@ predicted to belong to."
           (setq results (acons filename (classify-file filename
                                                        :classifier classifier
                                                        :feature-func feature-func) results))
-          (format t "~S: ~S~%" filename (classify-file filename
-                                                       :classifier classifier
-                                                       :feature-func feature-func))
+          (format t "~A: ~A~%" filename (cdar results))
+          ;; (format t "~S: ~S~%" filename (classify-file filename
+          ;;                                              :classifier classifier
+          ;;                                              :feature-func feature-func))
           ))
       (if outfile
           (with-open-file (out outfile :direction :output
                                        :if-exists :supersede
                                        :if-does-not-exist :create)
             (dolist (doc (reverse results))
-              (format out "~S ~S~%" (car doc) (cdr doc))))))))
+              (format out "~A ~A~%" (car doc) (cdr doc))))))))
