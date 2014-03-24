@@ -10,7 +10,7 @@
                  (declare (ignore v))
                  (push k acc))
              table)
-    (nreverse acc)))
+    acc))
 
 (defun vals (table)
   (let ((acc '()))
@@ -18,7 +18,7 @@
                  (declare (ignore k))
                  (push v acc))
              table)
-    (nreverse acc)))
+    acc))
 
 (defun bag-of-words (words)
   "Generate the bag of words features of WORDS. This is WORDS itself."
@@ -35,15 +35,6 @@
     (split-sequence:split-sequence #\Space
                                    tokenized-string
                                    :remove-empty-subseqs t)))
-
-;; (defun tf (vecs)
-;;   "Compute term frequencies for VECS, where VECS is a list of feature
-;;   vectors (as returned by osb2vec)."
-;;   (let ((histogram (make-hash-table :test #'equal)))
-;;     (dolist (vec vecs)
-;;       (dolist (feature vec)
-;;         (incf (gethash feature histogram 0))))
-;;     histogram))
 
 ;; ;; length normalized tf - performs poorly
 ;; (defun tf-train (vec &key idf)
@@ -142,6 +133,7 @@
         (class-histogram (make-hash-table :test #'equal))
         (class-features (make-hash-table :test #'equal))
         (vocabulary (make-hash-table :test #'equal))
+        (vocablen 0)
         (class-doc-tfs (make-hash-table :test #'equal))
         (class-tf (make-hash-table :test #'equal))
         (idf (make-hash-table :test #'equal))
@@ -216,6 +208,7 @@
                               (incf (gethash word vocabulary 0) f))
                           v))
              class-tf)
+    (setf vocablen (length (keys vocabulary)))
 
     ;; compute complementary class tf sums
     (mapcar #'(lambda (class)
@@ -234,7 +227,7 @@
                              (setf (gethash word (gethash class class-likelihoods))
                                    (log (/ (1+ f)
                                            (+ (gethash class class-tf-sums)
-                                              (length (keys vocabulary)))))))
+                                              vocablen)))))
                          (gethash class class-tf)))
             classes)
 
@@ -270,7 +263,7 @@
                                                   (gethash word (gethash class class-likelihoods)
                                                            (log (/ 1.0
                                                                    (+ (gethash class class-tf-sums)
-                                                                      (length (keys vocabulary)))))))))
+                                                                      vocablen)))))))
                                      tf)
                             ;; add the log-prior, though this is fairly useless
                             (incf posterior (gethash class class-priors))

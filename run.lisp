@@ -22,7 +22,6 @@
 
     (classify-files-naive-bayes testfile
                                 classifier-fun
-                                :outfile outfile))
-  )
+                                :outfile outfile)))
 
 (sb-ext:exit)
