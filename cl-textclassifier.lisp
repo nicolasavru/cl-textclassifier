@@ -8,24 +8,12 @@
   "Number of bits of the hash of a feature to use. Also the
   dimensionality for the hyperspace.")
 
-(defvar *hyperspace* '())
-
 (defun bag-of-words (words)
   "Generate the bag of words features of WORDS. This is WORDS itself."
   words
   )
 
-(defun osb (words N)
-  "Generate the Orthogonal Sparse Bigram (OSB) features of
-  words. Given a list of words (w1 w2 ... wn), its OSB representation
-  is ((w1 w2) (w1 w3) ... (w1 wn))"
-  (let ((w1 (car words)))
-    (mapcar #'(lambda (w) (cons w1 w)) (cdr words))))
-
-;; (defun osb (words N)
-;;   "Generate the Orthogonal Sparse Bigram (OSB) features of
-;;   words. Given a list of words (w1 w2 ... wn), its OSB representation
-;;   is ((w1 w2) (w1 w3) ... (w1 wn))"
+;; (defun n-grams (words N)
 ;;   (let* ((w1 (car words))
 ;;         (l (length words))
 ;;         (arr (make-array l :initial-contents words))
@@ -35,7 +23,28 @@
 ;;         (push (cons (aref arr i) (aref arr (+ i j 1))) acc)
 ;;         ))
 ;;     acc))
-;;     ;; (mapcar #'(lambda (w) (cons w1 w)) (cdr words))))
+
+(defun osb (words)
+  "Generate the Orthogonal Sparse Bigram (OSB) features of
+  words. Given a list of words (w1 w2 ... wn), its OSB representation
+  is ((w1 w2) (w1 w3) ... (w1 wn))"
+  (let ((w1 (car words)))
+    (mapcar #'(lambda (w) (sxhash (cons w1 w))) (cdr words))))
+
+(defun osb-sliding (words N)
+  "Generate the Orthogonal Sparse Bigram (OSB) features of
+  words. Given a list of words (w1 w2 ... wn), its OSB representation
+  is ((w1 w2) (w1 w3) ... (w1 wn))"
+  (let* ((w1 (car words))
+        (l (length words))
+        (arr (make-array l :initial-contents words))
+        (acc '()))
+    (dotimes (i (- l N))
+      (dotimes (j N)
+        (push (cons (aref arr i) (aref arr (+ i j 1))) acc)
+        ))
+    acc))
+    ;; (mapcar #'(lambda (w) (cons w1 w)) (cdr words))))
 
 (defun features2vec (features)
   "Convert a list of features to a vector in the hyperspace, where
@@ -57,8 +66,7 @@
 ;;     histogram))
 
 (defun tf (vec &key idf)
-  "Compute term frequencies for VEC, where VEC is, for example, the
-  tokenized text of a document."
+  "Compute term frequencies for VEC, where VEC is a list of features."
   (let ((histogram (make-hash-table :test #'equal))
         (denom 0))
     (dolist (feature vec)
@@ -206,14 +214,13 @@
                  ;; for each word in its complementary tf table
                 (maphash #'(lambda (word likelihood)
                              (setf (gethash word likelihood-table)
-                                   (/ likelihood (gethash class class-likelihood-sums)) ))
+                                   (/ likelihood (gethash class class-likelihood-sums))))
                          likelihood-table))
             class-likelihoods)
 
 
     (setf class-likelihood-fun
           (lambda (word class)
-            ;; (format t "in likelyhood fun, looking for word ~s in class ~s~%" word class)
             (gethash word (gethash class class-likelihoods)
                      (log (/ 1.0
                              (+ (gethash class class-tf-sums)
@@ -226,43 +233,9 @@
                        1))
              class-histogram)
 
-    ;; compute log-likelihoods with Laplace smoothing
-    ;; (setf class-likelihood-fun
-    ;;       (lambda (word class)
-    ;;         ;; (format t "word ~s has f ~d~%" word
-    ;;         ;;         (gethash word (gethash class class-tf) 0))
-    ;;         (* (log (gethash word idf N))
-    ;;            (- (log (/ (+ (gethash word
-    ;;                                   (gethash class class-tf)
-    ;;                                   0)
-    ;;                          1)
-    ;;                       (+ (length (gethash class class-features))
-    ;;                          (length vocabulary))))
-    ;;               ;; 0
-    ;;               ;; CNB
-    ;;               (let ((nci-bar 0)
-    ;;                     (nc-bar 0))
-    ;;                 (maphash #'(lambda (k v)
-    ;;                              (if (not (equal k class))
-    ;;                                  (progn
-    ;;                                    (incf nci-bar
-    ;;                                          (gethash word v 0))
-    ;;                                    (incf nc-bar
-    ;;                                          (length (gethash class class-features))))))
-    ;;                          class-tf)
-    ;;                 (log (/ (+ nci-bar 1)
-    ;;                         (+ nc-bar (length vocabulary))))
-    ;;                 )
-    ;;               ))))
-    ;; (maphash #'(lambda (k v)
-    ;;              (setf (gethash k class-likelihoods)
-    ;;                    (log (/ (+ (gethash k class-tf) 1)
-    ;;                            (+ (length (gethash k class-features))
-    ;;                               (length vocabulary))))))
-    ;;          class-tf)
     (values t class-priors class-likelihood-fun idf)))
 
-(defun train-naive-bayes-from-files (list-file)
+(defun train-naive-bayes-from-files (list-file &key (feature-fun #'bag-of-words))
   "Train CLASSIFIER on data from LIST-FILE. LIST-FILE should be of the
   format:
   /path/to/file1 class-of-file1
@@ -283,34 +256,40 @@
             (let ((text (make-string (file-length stream))))
               (read-sequence text stream)
 
-              ;; tokenization fun
-              (multiple-value-bind (success-p idx tokenized-string)
-                  (langutils:tokenize-string text)
-                (declare (ignore success-p))
-                (push (cons class
-                            (split-sequence:split-sequence #\Space tokenized-string
-                                                           :remove-empty-subseqs t))
-                      training-data)))))))
+              (push (cons class
+                          ;; feature-fun
+                          ;; (funcall feature-fun
+                          (split-sequence:split-sequence #\Space
+                                                         ;; tokenization fun
+                                                         (multiple-value-bind
+                                                               (success-p idx tokenized-string)
+                                                             (langutils:tokenize-string text)
+                                                           (declare (ignore success-p))
+                                                           tokenized-string)
+                                                         :remove-empty-subseqs t))
+                    ;; )
+                    training-data))))))
     (train-naive-bayes training-data)))
 
-(defun classify-naive-bayes (text class-priors class-likelihood-fun idf)
+(defun classify-naive-bayes (text class-priors class-likelihood-fun idf
+                             &key (feature-fun #'bag-of-words))
   (multiple-value-bind (success-p idx tokenized-string)
                 ;; (declare (ignore success-p))
                 (langutils:tokenize-string text)
-    (let* ((words (split-sequence:split-sequence #\Space tokenized-string :remove-empty-subseqs t))
+    (let* ((words
+             ;; (funcall feature-fun
+             (split-sequence:split-sequence #\Space tokenized-string :remove-empty-subseqs t))
+           ;; )
            (tf (tf words :idf idf))
            (class-posteriors (make-hash-table :test #'equal))
            (output-class)
            (min-posterior most-positive-fixnum))
 
       (maphash #'(lambda (class prior)
-                   ;; (format t "testing class ~s~%" class)
                    (let ((likelihood 0)
                          (posterior))
                      ;; compute posterior
                      (maphash #'(lambda (word f)
-                                  ;; (format t "word ~s has f ~d~%" word f)
-                                  ;; (format t "calling likelyhood fun, looking for class ~s~%" class)
                                   (incf likelihood
                                         (* f (funcall class-likelihood-fun word class))))
                               tf)
@@ -319,27 +298,27 @@
                            likelihood)
 
                      ;; find max posterior and most probable class
-                     (format t "class ~s has p ~d~%" class posterior)
+                     ;; (format t "class ~s has p ~d~%" class posterior)
                      (if (< posterior min-posterior)
                          (setf min-posterior posterior
                                output-class class))))
                class-priors)
       output-class)))
 
-(defun classify-file-naive-bayes (filename class-priors class-likelihood-fun idf)
+(defun classify-file-naive-bayes (filename class-priors class-likelihood-fun idf
+                                  &key (feature-fun #'bag-of-words))
   "Classify text from FILENAME."
   ;; (format t "classifying ~s~%" filename)
   (with-open-file (stream filename)
     (let ((seq (make-string (file-length stream))))
       (read-sequence seq stream)
-      (classify-naive-bayes seq
-                            class-priors
-                            class-likelihood-fun
-                            idf))))
+      (classify-naive-bayes seq class-priors
+                            class-likelihood-fun idf
+                            :feature-fun feature-fun))))
 
 (defun classify-files-naive-bayes (list-file class-priors
-                                   class-likelihood-fun idf &key outfile)
-  (format t "outfile: ~s~%" outfile)
+                                   class-likelihood-fun idf
+                                   &key (feature-fun #'bag-of-words) outfile)
   (let ((results '()))
     (with-open-file (stream list-file)
       (do ((line (read-line stream nil)
@@ -348,20 +327,22 @@
         (let* ((split-line (split-sequence:split-sequence #\Space line))
                (filename (car split-line))
                (class (cadr split-line)))
+          (format t "classifying ~a~%" filename)
           (setq results (acons filename (classify-file-naive-bayes filename
                                                                    class-priors
-                                                                   class-likelihood-fun idf) results))
-          (format t "~S: ~S~%" filename (classify-file-naive-bayes filename
-                                                                   class-priors
-                                                                   class-likelihood-fun idf))
+                                                                   class-likelihood-fun idf
+                                                                   :feature-fun feature-fun) results))
+          ;; (format t "~S: ~S~%" filename (classify-file-naive-bayes filename
+          ;;                                                          class-priors
+          ;;                                                          class-likelihood-fun idf
+          ;;                                                          :feature-fun feature-fun))
           ))
       (if outfile
           (with-open-file (out outfile :direction :output
                                        :if-exists :supersede
                                        :if-does-not-exist :create)
             (dolist (doc (reverse results))
-              (format out "~S ~S~%" (car doc) (cdr doc))))))
-    ))
+              (format out "~S ~S~%" (car doc) (cdr doc))))))))
 
 
 (defun keys (table)
