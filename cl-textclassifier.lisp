@@ -26,35 +26,10 @@
              table)
     (nreverse acc)))
 
-(defun print-hash-entry (key value)
-  (format t "The value associated with the key ~A is ~A~%" key value))
-
 (defun bag-of-words (words)
   "Generate the bag of words features of WORDS. This is WORDS itself."
   words
   )
-
-(defun osb-static (words)
-  "Generate incorrect Orthogonal Sparse Bigram (OSB) features of
-  words. Given a list of words (w1 w2 ... wn), its OSB representation
-  is ((w1 w2) (w1 w3) ... (w1 wn))"
-  (let ((w1 (car words)))
-    (mapcar #'(lambda (w) (cons w1 w)) (cdr words))))
-
-;; (defun osb (words N)
-;;   "Generate the Orthogonal Sparse Bigram (OSB) features of
-;;   words. Given a list of words (w1 w2 ... wn), its OSB representation
-;;   is ((w1 w2) (w1 w3) ... (w1 wn))"
-;;   (let* ((w1 (car words))
-;;         (l (length words))
-;;         (arr (make-array l :initial-contents words))
-;;         (acc '()))
-;;     (dotimes (i (- l N))
-;;       (dotimes (j N)
-;;         (push (cons (aref arr i) (aref arr (+ i j 1))) acc)
-;;         ))
-;;     acc))
-;;     ;; (mapcar #'(lambda (w) (cons w1 w)) (cdr words))))
 
 (defun default-tokenize-fun (text)
   "Return a list of tokens generated from TEXT. This function uses the
@@ -66,16 +41,6 @@
     (split-sequence:split-sequence #\Space
                                    tokenized-string
                                    :remove-empty-subseqs t)))
-
-(defun features2vec (features)
-  "Convert a list of features to a vector in the hyperspace, where
-  each vector is represented sparesely as a list of indices
-  representing non-zero dimensions. The coefficient in each non-zero
-  dimension is assumed to be one. In case case of multiple features
-  mapping to the same point, a non-one (and non-zero) dimension is
-  represented by two (or more) copies of the vector with unity
-  coefficients."
-  (mapcar #'(lambda (f) (mod (sxhash f) (expt 2 hashlen))) features))
 
 ;; (defun tf (vecs)
 ;;   "Compute term frequencies for VECS, where VECS is a list of feature
@@ -425,110 +390,6 @@ CLASSIFY-NAIVE-BAYES."
                                                                    :feature-fun feature-fun)
                                results))
           (format t "~A ~A~%" filename (cdar results))))
-      (if outfile
-          (with-open-file (out outfile :direction :output
-                                       :if-exists :supersede
-                                       :if-does-not-exist :create)
-            (dolist (doc (reverse results))
-              (format out "~A ~A~%" (car doc) (cdr doc))))))))
-
-(defun learn (class text &key classifier feature-func)
-  "Train CLASSIFIER on TEXT, which is in CLASS. Return CLASSIFIER"
-  (multiple-value-bind (success-p idx tokenized-string)
-      ;; (declare (ignore success-p))
-      (langutils:tokenize-string text)
-    (let ((words (split-sequence:split-sequence #\Space tokenized-string :remove-empty-subseqs t)))
-      (acons class (features2vec (funcall feature-func words)) classifier))))
-
-(defun learn-from-file (class filename &key classifier feature-func)
-  "Train CLASSIFIER on text read from FILENAME, which is in CLASS"
-  (with-open-file (stream filename)
-    (let ((seq (make-string (file-length stream))))
-      (read-sequence seq stream)
-      (setq classifier (learn class seq
-                              :classifier classifier
-                              :feature-func feature-func
-                              )))))
-
-(defun learn-files (list-file &key classifier feature-func)
-  "Train CLASSIFIER on data from LIST-FILE. LIST-FILE should be of the
-  format:
-  /path/to/file1 class-of-file1
-  /path/to/file2 class-of-file2
-  ...
-  /path/to/filen class-of-filen"
-  (with-open-file (stream list-file)
-    (do ((line (read-line stream nil)
-               (read-line stream nil)))
-        ((null line) classifier)
-      (let* ((split-line (split-sequence:split-sequence #\Space line))
-             (filename (car split-line))
-             (class (cadr split-line)))
-        (setq classifier (learn-from-file class filename
-                                          :classifier classifier
-                                          :feature-func feature-func))))))
-
-(defun classify (text &key classifier feature-func)
-  "Classify TEXT using CLASSIFIER. Return the class to which TEXT is
-predicted to belong to."
-  (multiple-value-bind (success-p idx tokenized-string)
-      ;; (declare (ignore success-p))
-      (langutils:tokenize-string text)
-    (let* ((words (split-sequence:split-sequence #\Space tokenized-string :remove-empty-subseqs t))
-           (new-vec (features2vec (funcall feature-func words)))
-           (class-radiance-table (make-hash-table :test #'equal))
-           (nfeats 0)
-           (max-radiance 0)
-           (max-class))
-      (dolist (labeled-vec classifier)
-        (let* ((label (car labeled-vec))
-               (known-vec (cdr labeled-vec))
-               (dist (sqrt (length (set-exclusive-or known-vec new-vec))))
-               (kandu (length (intersection known-vec new-vec)))
-               ;; (dist (/ (+ (expt (/ (length (set-exclusive-or known-vec new-vec)) 2) 2) 1)
-               ;;          (+ (* 4 kandu kandu) 1)))
-               (radiance (* (/ 1.0 (+ (* dist dist) .000001)) kandu kandu))
-               ;; (radiance (/ 1.0  dist))
-               )
-          (incf nfeats)
-          (incf (gethash label class-radiance-table 0) radiance)
-        ;; TODO-maybe: normalize radiance by number of features
-          ))
-      ;; (maphash #'print-hash-entry class-radiance-table)
-      (maphash #'(lambda (key value)
-                   (if (> value max-radiance)
-                       (setq max-radiance value
-                             max-class key)))
-               class-radiance-table)
-      max-class)))
-
-(defun classify-file (filename &key classifier feature-func)
-  "Classify text from FILENAME."
-  (with-open-file (stream filename)
-    (let ((seq (make-string (file-length stream))))
-      (read-sequence seq stream)
-      (classify seq
-                :classifier classifier
-                :feature-func feature-func))))
-
-(defun classify-files (list-file &key classifier feature-func outfile)
-  (format t "outfile: ~S~%" outfile)
-  (let ((results '()))
-    (with-open-file (stream list-file)
-      (do ((line (read-line stream nil)
-                 (read-line stream nil)))
-          ((null line) classifier)
-        (let* ((split-line (split-sequence:split-sequence #\Space line))
-               (filename (car split-line))
-               (class (cadr split-line)))
-          (setq results (acons filename (classify-file filename
-                                                       :classifier classifier
-                                                       :feature-func feature-func) results))
-          (format t "~A: ~A~%" filename (cdar results))
-          ;; (format t "~S: ~S~%" filename (classify-file filename
-          ;;                                              :classifier classifier
-          ;;                                              :feature-func feature-func))
-          ))
       (if outfile
           (with-open-file (out outfile :direction :output
                                        :if-exists :supersede
