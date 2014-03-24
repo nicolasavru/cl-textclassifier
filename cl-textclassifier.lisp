@@ -4,12 +4,6 @@
 
 ;;; "cl-textclassifier" goes here. Hacks and glory await!
 
-(defconstant hashlen 32
-  "Number of bits of the hash of a feature to use. Also the
-  dimensionality for the hyperspace.")
-
-(defvar *hyperspace* '())
-
 (defun keys (table)
   (let ((acc '()))
     (maphash #'(lambda (k v)
@@ -37,7 +31,7 @@
   removal."
   (multiple-value-bind (success-p idx tokenized-string)
       (langutils:tokenize-string text)
-    (declare (ignore success-p))
+    (declare (ignore success-p idx))
     (split-sequence:split-sequence #\Space
                                    tokenized-string
                                    :remove-empty-subseqs t)))
@@ -74,7 +68,6 @@
 
 ;; ;; tf with incorrect length normalization (denominator is computed
 ;; ;; before IDF transformation) - performs surprisingly well
-;; ;; 0.865
 ;; (defun tf-train (vec &key idf)
 ;;   "Compute term frequencies for VEC, where VEC is, for example, the
 ;;   tokenized text of a document."
@@ -98,12 +91,10 @@
 ;; tf without length normalization - slightly improves recall at
 ;; the expense of precision as compared to tf-good, but results in
 ;; higher F1 metrics than improper length normalization
-;; 0.869; 0.878 with tf-plain
 (defun tf-train (vec &key idf)
   "Compute term frequencies for VEC, where VEC is, for example, the
   tokenized text of a document."
-  (let ((histogram (make-hash-table :test #'equal))
-        (denom 0))
+  (let ((histogram (make-hash-table :test #'equal)))
     (dolist (feature vec)
       (incf (gethash feature histogram 0)))
     (maphash #'(lambda (k v)
@@ -117,11 +108,10 @@
     histogram))
 
 ;; non-transformed tf - used for test document tf
-(defun tf-plain (vec &key idf)
+(defun tf-plain (vec)
   "Compute term frequencies for VEC, where VEC is, for example, the
   tokenized text of a document."
-  (let ((histogram (make-hash-table :test #'equal))
-        (denom 0))
+  (let ((histogram (make-hash-table :test #'equal)))
     (dolist (feature vec)
       (incf (gethash feature histogram 0)))
     histogram))
@@ -152,7 +142,6 @@
         (class-histogram (make-hash-table :test #'equal))
         (class-features (make-hash-table :test #'equal))
         (vocabulary (make-hash-table :test #'equal))
-        (class-feature-vecs (make-hash-table :test #'equal))
         (class-doc-tfs (make-hash-table :test #'equal))
         (class-tf (make-hash-table :test #'equal))
         (idf (make-hash-table :test #'equal))
@@ -160,7 +149,7 @@
         (class-priors (make-hash-table :test #'equal))
         (class-likelihoods (make-hash-table :test #'equal))
         ;; (class-likelihood-sums (make-hash-table :test #'equal))
-        )
+        (classifier-fun))
     (dolist (doc training-data)
       (let ((class (car doc))
             (features (cdr doc)))

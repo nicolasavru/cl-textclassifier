@@ -1,6 +1,12 @@
 # cl-textclassifier
 
-cl-textclassifier is a text classifier implementation in Common Lisp.
+cl-textclassifier is a text classifier implementation in Common
+Lisp. A Naive Bayes classifier as described in [1] is used. However,
+some modifications from [1] proved to be detrimental in testing and
+are disabled.
+
+References:
+[1]  http://people.csail.mit.edu/jrennie/papers/icml03-nb.pdf
 
 ## Usage
 
