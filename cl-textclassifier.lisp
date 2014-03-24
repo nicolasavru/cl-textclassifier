@@ -26,6 +26,9 @@
              table)
     (nreverse acc)))
 
+(defun print-hash-entry (key value)
+  (format t "The value associated with the key ~A is ~A~%" key value))
+
 (defun bag-of-words (words)
   "Generate the bag of words features of WORDS. This is WORDS itself."
   words
@@ -191,8 +194,8 @@
         (class-tf-sums (make-hash-table :test #'equal))
         (class-priors (make-hash-table :test #'equal))
         (class-likelihoods (make-hash-table :test #'equal))
-        (class-likelihood-sums (make-hash-table :test #'equal))
-        (class-likelihood-fun))
+        ;; (class-likelihood-sums (make-hash-table :test #'equal))
+        )
     (dolist (doc training-data)
       (let ((class (car doc))
             (features (cdr doc)))
@@ -421,7 +424,7 @@ CLASSIFY-NAIVE-BAYES."
                                                                    :tokenize-fun tokenize-fun
                                                                    :feature-fun feature-fun)
                                results))
-          (format t "~A: ~A~%" filename (cdar results))))
+          (format t "~A ~A~%" filename (cdar results))))
       (if outfile
           (with-open-file (out outfile :direction :output
                                        :if-exists :supersede
@@ -464,9 +467,6 @@ CLASSIFY-NAIVE-BAYES."
         (setq classifier (learn-from-file class filename
                                           :classifier classifier
                                           :feature-func feature-func))))))
-
-(defun print-hash-entry (key value)
-  (format t "The value associated with the key ~A is ~A~%" key value))
 
 (defun classify (text &key classifier feature-func)
   "Classify TEXT using CLASSIFIER. Return the class to which TEXT is
