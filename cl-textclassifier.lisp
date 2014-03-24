@@ -74,13 +74,17 @@
     (maphash #'(lambda (k v)
                  (setf (gethash k histogram)
                        (log (1+ v)))
+                 )
+             histogram)
+    (maphash #'(lambda (k v)
+                 (setf (gethash k histogram)
+                       (* v (gethash k (cdr idf) (log (car IDF)))))
                  (incf denom (expt (gethash k histogram) 2)))
              histogram)
     (setf denom (sqrt denom))
     (maphash #'(lambda (k v)
                  (setf (gethash k histogram)
-                       (* (gethash k idf 1) ; TODO-maybe: change 1 to N
-                          (/ v denom))))
+                       (/ v denom)))
              histogram)
     histogram))
 
@@ -102,7 +106,7 @@
                  (setf (gethash k histogram)
                        (log (/ N v))))
              histogram)
-    histogram))
+    (cons N histogram)))
 
 (defun train-naive-bayes (training-data)
   "Train a naive bayes classifier on TRAINING-DATA, where
@@ -111,11 +115,9 @@
         (class-histogram (make-hash-table :test #'equal))
         (class-features (make-hash-table :test #'equal))
         (vocabulary (make-hash-table :test #'equal))
-        (class-feature-vecs (make-hash-table :test #'equal))
         (class-doc-tfs (make-hash-table :test #'equal))
         (class-tf (make-hash-table :test #'equal))
         (idf (make-hash-table :test #'equal))
-        (class-tf-idf (make-hash-table :test #'equal))
         (class-tf-sums (make-hash-table :test #'equal))
         (class-priors (make-hash-table :test #'equal))
         (class-likelihoods (make-hash-table :test #'equal))
@@ -175,6 +177,7 @@
     ;; compute vocabulary (global tf table)
     ;; for each class...
     (maphash #'(lambda (k v)
+                 (declare (ignore k))
                  ;; for every word in its tf table...
                  (maphash #'(lambda (word f)
                               ;; increment the global tf table by its frequency
@@ -197,7 +200,7 @@
                 ;; for each word in its complementary tf table
                 (maphash #'(lambda (word f)
                              (setf (gethash word (gethash class class-likelihoods))
-                                   (log (/ (1+ (gethash word (gethash class class-tf)))
+                                   (log (/ (1+ f)
                                            (+ (gethash class class-tf-sums)
                                               (length (keys vocabulary)))))))
                          (gethash class class-tf)))
@@ -228,7 +231,7 @@
 
     ;; don't bother computing priors
     (maphash #'(lambda (k v)
-                 (declare (ignore k v))
+                 (declare (ignore v))
                  (setf (gethash k class-priors)
                        1))
              class-histogram)
@@ -342,7 +345,7 @@
                                        :if-exists :supersede
                                        :if-does-not-exist :create)
             (dolist (doc (reverse results))
-              (format out "~S ~S~%" (car doc) (cdr doc))))))))
+              (format out "~a ~a~%" (car doc) (cdr doc))))))))
 
 
 (defun keys (table)
