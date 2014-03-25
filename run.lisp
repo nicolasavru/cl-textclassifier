@@ -18,10 +18,20 @@
   (setf outfile (read-line *query-io*))
 
   (let ((classifier-fun (train-naive-bayes-from-files
-                         trainfile)))
+                         trainfile
+                         :feature-fun #'(lambda (words) (osb words 4))
+                         ;; :feature-fun #'(lambda (words) (n-grams words 3))
+                         )))
+    (format t "Done training!~%")
 
     (classify-files-naive-bayes testfile
                                 classifier-fun
-                                :outfile outfile)))
+                                :outfile outfile
+                                :feature-fun #'(lambda (words) (osb words 4))
+                                ;; :feature-fun #'(lambda (words) (n-grams words 3))
+                                )
+    (format t "Done classifying!~%"))
+  )
+
 
 (sb-ext:exit)

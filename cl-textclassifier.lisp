@@ -20,6 +20,28 @@
              table)
     acc))
 
+(defun n-grams (words N)
+  "Compute n-grams from WORDS. The end of words is chopped off."
+  (delete-if #'null
+             (maplist #'(lambda (words)
+                          (if (nthcdr (1- N) words)
+                              (subseq words 0 N)))
+                      words)))
+
+(defun osb (words N)
+  "Compute Orthogonal Sparce Bigrams (OSB) from WORDS. The end of
+  words is chopped off."
+  (delete-if #'null
+             (let ((acc '()))
+               (mapl #'(lambda (words)
+                         (if (nthcdr (1- N) words)
+                             (dotimes (i (1- N))
+                               (push (cons (car words)
+                                           (nth i (cdr words)))
+                                     acc))))
+                     words)
+               acc)))
+
 (defun bag-of-words (words)
   "Generate the bag of words features of WORDS. This is WORDS itself."
   words
@@ -371,7 +393,8 @@ CLASSIFY-NAIVE-BAYES."
                                                                    :tokenize-fun tokenize-fun
                                                                    :feature-fun feature-fun)
                                results))
-          (format t "~A ~A~%" filename (cdar results))))
+          ;; (format t "~A ~A~%" filename (cdar results))
+          ))
       (if outfile
           (with-open-file (out outfile :direction :output
                                        :if-exists :supersede
