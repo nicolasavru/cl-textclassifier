@@ -107,16 +107,11 @@
 (defun tf-train (vec &key idf)
   "Compute term frequencies for VEC, where VEC is, for example, the
   tokenized text of a document."
-  (let ((histogram (make-hash-table :test #'equal)))
-    (dolist (feature vec)
-      (incf (gethash feature histogram 0)))
+  (let ((histogram (tf-plain vec)))
     (maphash #'(lambda (k v)
                  (setf (gethash k histogram)
-                       (log (1+ v))))
-             histogram)
-    (maphash #'(lambda (k v)
-                 (setf (gethash k histogram)
-                       (* v (gethash k idf 1))))  ; 1 or N makes little difference
+                       (* (log (1+ v))
+                          (gethash k idf 1))))  ; 1 or N makes little difference
              histogram)
     histogram))
 
